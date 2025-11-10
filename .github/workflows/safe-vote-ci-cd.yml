@@ -20,6 +20,7 @@ on:
 env:
   SUT_IP_ADDRESS: ${{ vars.SUT_IP_ADDRESS }}
   BACKEND_PORT: 15550
+  BACKEND_DOWNLOAD_URL: ${{ vars.BACKEND_DOWNLOAD_URL }}
   AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
   AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
   AWS_REGION: ${{ vars.AWS_REGION }}
@@ -157,6 +158,17 @@ jobs:
 
       - name: Run tests
         run: npm test
+
+      - name: Verify required variables
+        run: |
+          if [ -z "${{ vars.BACKEND_DOWNLOAD_URL }}" ]; then
+            echo "::error::BACKEND_DOWNLOAD_URL is not set. Please set it in your repository's variables."
+            exit 1
+          fi
+          if [ -z "$SUT_IP_ADDRESS" ]; then
+            echo "::error::SUT_IP_ADDRESS is not set. Please set it in your repository's variables."
+            exit 1
+          fi
 
       - name: Deploy backend
         run: |
