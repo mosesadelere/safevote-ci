@@ -161,7 +161,10 @@ jobs:
       - name: Deploy backend
         run: |
           chmod +x ./scripts/deploy-backend.sh
-          ./scripts/deploy-backend.sh ${{ vars.BACKEND_DOWNLOAD_URL }} $SUT_IP_ADDRESS $BACKEND_PORT
+          echo "Deploying backend with URL: ${{ vars.BACKEND_DOWNLOAD_URL }}"
+          echo "SUT IP: $SUT_IP_ADDRESS"
+          echo "Backend Port: $BACKEND_PORT"
+          ./scripts/deploy-backend.sh "${{ vars.BACKEND_DOWNLOAD_URL }}" "$SUT_IP_ADDRESS" "$BACKEND_PORT"
 
   deploy-frontend:
     name: Deploy Frontend
