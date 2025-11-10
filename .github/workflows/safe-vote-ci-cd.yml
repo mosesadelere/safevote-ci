@@ -307,20 +307,70 @@ jobs:
           aws-region: ${{ env.AWS_REGION }}
 
       - name: Rollback Backend
-        if: needs.deploy-backend.result == 'failure'
+        if: needs.deploy-backend.result == 'failure' || needs.deploy-frontend.result == 'failure'
         run: |
-          # Implement rollback logic for backend
-          echo "Rolling back backend to previous version..."
-          # Add your rollback commands here
+          echo "🚨 Initiating rollback procedure..."
+          
+          # Check if we're rolling back from a specific version or last known good
+          if [ -n "${{ vars.LAST_KNOWN_GOOD_VERSION }}" ]; then
+            echo "Rolling back to last known good version: ${{ vars.LAST_KNOWN_GOOD_VERSION }}"
+            # Download and deploy the last known good version
+            curl -sL "${{ vars.BACKEND_DOWNLOAD_URL }}/${{ vars.LAST_KNOWN_GOOD_VERSION }}/backend.tar.gz" -o backend-rollback.tar.gz
+            tar -xzf backend-rollback.tar.gz -C /tmp/safevote-backend --strip-components=1
+            systemctl restart safevote-backend
+            echo "✅ Backend rolled back to version ${{ vars.LAST_KNOWN_GOOD_VERSION }}"
+          else
+            # Fallback to previous deployment
+            echo "No specific version to rollback to, redeploying previous version..."
+            systemctl stop safevote-backend || true
+            systemctl start safevote-backend || systemctl restart safevote-backend
+            echo "✅ Backend service restarted"
+          fi
 
       - name: Rollback Frontend
-        if: needs.deploy-frontend.result == 'failure'
+        if: needs.deploy-frontend.result == 'failure' || needs.deploy-backend.result == 'failure'
         run: |
-          # Implement rollback logic for frontend
-          echo "Rolling back frontend to previous version..."
-          # Add your rollback commands here
+          echo "🔄 Rolling back frontend to previous version..."
+          # If using S3 for frontend hosting with versioning
+          if [ -n "${{ vars.S3_FRONTEND_BUCKET }}" ]; then
+            PREVIOUS_VERSION=$(aws s3api list-object-versions \
+              --bucket ${{ vars.S3_FRONTEND_BUCKET }} \
+              --prefix index.html \
+              --query 'Versions[?IsLatest==`false`] | [0].VersionId' \
+              --output text)
+            
+            if [ "$PREVIOUS_VERSION" != "None" ]; then
+              echo "Restoring previous version: $PREVIOUS_VERSION"
+              aws s3api copy-object \
+                --copy-source "${{ vars.S3_FRONTEND_BUCKET }}/index.html?versionId=$PREVIOUS_VERSION" \
+                --bucket ${{ vars.S3_FRONTEND_BUCKET }} \
+                --key index.html \
+                --metadata-directive COPY
+              echo "✅ Frontend rolled back to previous version"
+            else
+              echo "⚠️ No previous version found for rollback"
+            fi
+          else
+            echo "ℹ️ No S3 frontend bucket configured for rollback"
+          fi
+
+      - name: Verify Rollback
+        if: always() && (needs.deploy-backend.result == 'failure' || needs.deploy-frontend.result == 'failure')
+        run: |
+          echo "🔍 Verifying rollback status..."
+          # Verify backend is running
+          if systemctl is-active --quiet safevote-backend; then
+            echo "✅ Backend service is running"
+          else
+            echo "❌ Backend service is not running after rollback"
+            exit 1
+          fi
+          
+          # Add any additional verification steps here
+          echo "✅ Rollback verification complete"
 
       - name: Notify Rollback
+        if: always() && (needs.deploy-backend.result == 'failure' || needs.deploy-frontend.result == 'failure')
         uses: rtCamp/action-slack-notify@v2
         env:
           SLACK_WEBHOOK: ${{ secrets.SLACK_WEBHOOK_URL }}
@@ -331,3 +381,5 @@ jobs:
             *Failed Job*: ${{ contains(needs.*.result, 'failure') && 'Multiple' || (needs.deploy-backend.result == 'failure' && 'Backend' || (needs.deploy-frontend.result == 'failure' && 'Frontend' || 'Validation')) }}
             *Commit*: ${{ github.sha }}
             *Run URL*: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
+            *Rollback Status*: ${{ steps.verify-rollback.outcome == 'success' && '✅ Successful' || '❌ Failed' }}
+            *Next Steps*: Please investigate the failure and redeploy when fixed
