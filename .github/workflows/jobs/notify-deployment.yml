@@ -1,0 +1,39 @@
+name: Notify Team
+
+on:
+  workflow_call:
+    inputs:
+      environment:
+        required: true
+        type: string
+      status:
+        required: true
+        type: string
+    secrets: inherit
+
+jobs:
+  notify-deployment:
+    name: Notify Team
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check deployment status
+        id: check-status
+        run: |
+          if [ "${{ inputs.status }}" = "success" ]; then
+            echo "status=success" >> $GITHUB_OUTPUT
+          else
+            echo "status=failed" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Send Slack notification
+        uses: rtCamp/action-slack-notify@v2
+        env:
+          SLACK_WEBHOOK: ${{ secrets.SLACK_WEBHOOK_URL }}
+          SLACK_COLOR: ${{ steps.check-status.outputs.status == 'success' && '#36a64f' || '#ff0000' }}
+          SLACK_TITLE: "SafeVote Deployment ${{ steps.check-status.outputs.status == 'success' && '✅ Succeeded' || '❌ Failed' }}"
+          SLACK_MESSAGE: |
+            *Environment*: ${{ inputs.environment }}
+            *Commit*: ${{ github.sha }}
+            *Workflow*: ${{ github.workflow }}
+            *Status*: ${{ steps.check-status.outputs.status }}
+            *Run URL*: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}

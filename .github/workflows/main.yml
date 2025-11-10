@@ -1,0 +1,99 @@
+name: SafeVote CI/CD Pipeline
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Environment to deploy to'
+        required: true
+        default: 'staging'
+        type: choice
+        options:
+        - staging
+        - production
+
+# Include shared environment variables and defaults
+env:
+  # Required variables with defaults for local testing
+  SUT_IP_ADDRESS: ${{ vars.SUT_IP_ADDRESS || 'localhost' }}
+  BACKEND_PORT: 15550
+  BACKEND_DOWNLOAD_URL: ${{ vars.BACKEND_DOWNLOAD_URL || 'http://localhost:3000' }}
+  
+  # AWS Configuration
+  AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID || 'dummy-key' }}
+  AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY || 'dummy-secret' }}
+  AWS_REGION: ${{ vars.AWS_REGION || 'us-east-1' }}
+  S3_BUCKET: ${{ vars.S3_BUCKET || 'safevote-local' }}
+  
+  # Environment Configuration
+  ENVIRONMENT: ${{ github.event.inputs.environment || 'staging' }}
+  TF_BACKEND_BUCKET: ${{ vars.TF_BACKEND_BUCKET || 'safevote-tfstate' }}
+  TF_STATE_KEY: "safevote/${{ github.event.inputs.environment || 'staging' }}/terraform.tfstate"
+  
+  # Frontend Configuration (if using S3)
+  S3_FRONTEND_BUCKET: ${{ vars.S3_FRONTEND_BUCKET || 'safevote-frontend' }}
+
+jobs:
+  security-scan:
+    uses: ./.github/workflows/jobs/security-scan.yml
+    secrets: inherit
+    with:
+      environment: ${{ github.event.inputs.environment || 'staging' }}
+
+  deploy-infrastructure:
+    needs: security-scan
+    uses: ./.github/workflows/jobs/deploy-infrastructure.yml
+    secrets: inherit
+    with:
+      environment: ${{ github.event.inputs.environment || 'staging' }}
+
+  deploy-backend:
+    needs: security-scan
+    uses: ./.github/workflows/jobs/deploy-backend.yml
+    secrets: inherit
+    with:
+      environment: ${{ github.event.inputs.environment || 'staging' }}
+
+  deploy-frontend:
+    needs: [deploy-backend, deploy-infrastructure]
+    uses: ./.github/workflows/jobs/deploy-frontend.yml
+    secrets: inherit
+    with:
+      environment: ${{ github.event.inputs.environment || 'staging' }}
+
+  run-tests:
+    needs: [deploy-backend, deploy-frontend, deploy-infrastructure]
+    uses: ./.github/workflows/jobs/run-tests.yml
+    secrets: inherit
+    with:
+      environment: ${{ github.event.inputs.environment || 'staging' }}
+
+  validate-deployment:
+    needs: run-tests
+    uses: ./.github/workflows/jobs/validate-deployment.yml
+    secrets: inherit
+    with:
+      environment: ${{ github.event.inputs.environment || 'staging' }}
+
+  notify-deployment:
+    needs: validate-deployment
+    if: always()
+    uses: ./.github/workflows/jobs/notify-deployment.yml
+    secrets: inherit
+    with:
+      environment: ${{ github.event.inputs.environment || 'staging' }}
+      status: ${{ needs.validate-deployment.result }}
+
+  rollback-on-failure:
+    if: failure() && (needs.deploy-backend.result == 'failure' || needs.deploy-frontend.result == 'failure' || needs.validate-deployment.result == 'failure')
+    needs: [deploy-backend, deploy-frontend, validate-deployment]
+    uses: ./.github/workflows/jobs/rollback-on-failure.yml
+    secrets: inherit
+    with:
+      environment: ${{ github.event.inputs.environment || 'staging' }}
+      failed_jobs: >
+        ${{ toJSON(needs.*.result) }}

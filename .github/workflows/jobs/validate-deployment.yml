@@ -1,0 +1,29 @@
+name: Validate Deployment
+
+on:
+  workflow_call:
+    inputs:
+      environment:
+        required: true
+        type: string
+    secrets: inherit
+
+jobs:
+  validate-deployment:
+    name: Validate Deployment
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Run validation
+        run: |
+          chmod +x ./scripts/validate-deployment.sh
+          ./scripts/validate-deployment.sh $SUT_IP_ADDRESS $BACKEND_PORT
+
+      - name: Upload validation results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: validation-results
+          path: validation-results/

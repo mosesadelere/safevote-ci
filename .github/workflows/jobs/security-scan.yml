@@ -1,0 +1,43 @@
+name: Security Scan
+
+on:
+  workflow_call:
+    inputs:
+      environment:
+        required: true
+        type: string
+    secrets: inherit
+
+jobs:
+  security-scan:
+    name: Security Scan
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
+
+      - name: Run dependency check
+        if: github.event_name == 'pull_request'
+        uses: actions/dependency-review-action@v3
+        with:
+          fail-on-severity: high
+          base_ref: ${{ github.event.pull_request.base.sha }}
+          head_ref: ${{ github.event.pull_request.head.sha }}
+
+      - name: Run OWASP Dependency Check
+        uses: dependency-check/Dependency-Check_Action@main
+        with:
+          project: 'SafeVote'
+          format: 'HTML'
+          fail_on_cvss_above_threshold: '7'
+          fail_build: true
+          path: './**'
+          scanpath: '.'
+
+      - name: Upload dependency scan results
+        uses: actions/upload-artifact@v4
+        with:
+          name: dependency-scan-results
+          path: dependency-check-report.*

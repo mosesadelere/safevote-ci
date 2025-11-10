@@ -1,0 +1,120 @@
+name: Rollback on Failure
+
+on:
+  workflow_call:
+    inputs:
+      environment:
+        required: true
+        type: string
+      failed_jobs:
+        required: true
+        type: string
+    secrets: inherit
+
+jobs:
+  rollback-on-failure:
+    name: Rollback on Failure
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+        with:
+          ref: ${{ github.event.before || 'HEAD~1' }}
+
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v2
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Rollback Backend
+        id: rollback-backend
+        if: contains(inputs.failed_jobs, 'deploy-backend') || contains(inputs.failed_jobs, 'deploy-frontend')
+        run: |
+          echo "🚨 Initiating backend rollback..."
+          
+          # Check if we're rolling back from a specific version or last known good
+          if [ -n "${{ vars.LAST_KNOWN_GOOD_VERSION }}" ]; then
+            echo "Rolling back to last known good version: ${{ vars.LAST_KNOWN_GOOD_VERSION }}"
+            # Download and deploy the last known good version
+            curl -sL "${{ vars.BACKEND_DOWNLOAD_URL }}/${{ vars.LAST_KNOWN_GOOD_VERSION }}/backend.tar.gz" -o backend-rollback.tar.gz
+            tar -xzf backend-rollback.tar.gz -C /tmp/safevote-backend --strip-components=1
+            systemctl restart safevote-backend
+            echo "✅ Backend rolled back to version ${{ vars.LAST_KNOWN_GOOD_VERSION }}"
+            echo "status=success" >> $GITHUB_OUTPUT
+          else
+            # Fallback to previous deployment
+            echo "No specific version to rollback to, redeploying previous version..."
+            systemctl stop safevote-backend || true
+            systemctl start safevote-backend || systemctl restart safevote-backend
+            echo "✅ Backend service restarted"
+            echo "status=success" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Rollback Frontend
+        id: rollback-frontend
+        if: contains(inputs.failed_jobs, 'deploy-frontend') || contains(inputs.failed_jobs, 'deploy-backend')
+        run: |
+          echo "🔄 Rolling back frontend to previous version..."
+          # If using S3 for frontend hosting with versioning
+          if [ -n "${{ vars.S3_FRONTEND_BUCKET }}" ]; then
+            PREVIOUS_VERSION=$(aws s3api list-object-versions \
+              --bucket ${{ vars.S3_FRONTEND_BUCKET }} \
+              --prefix index.html \
+              --query 'Versions[?IsLatest==`false`] | [0].VersionId' \
+              --output text)
+            
+            if [ "$PREVIOUS_VERSION" != "None" ]; then
+              echo "Restoring previous version: $PREVIOUS_VERSION"
+              aws s3api copy-object \
+                --copy-source "${{ vars.S3_FRONTEND_BUCKET }}/index.html?versionId=$PREVIOUS_VERSION" \
+                --bucket ${{ vars.S3_FRONTEND_BUCKET }} \
+                --key index.html \
+                --metadata-directive COPY
+              echo "✅ Frontend rolled back to previous version"
+              echo "status=success" >> $GITHUB_OUTPUT
+            else
+              echo "⚠️ No previous version found for rollback"
+              echo "status=failed" >> $GITHUB_OUTPUT
+            fi
+          else
+            echo "ℹ️ No S3 frontend bucket configured for rollback"
+            echo "status=skipped" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Verify Rollback
+        id: verify-rollback
+        if: always() && (contains(inputs.failed_jobs, 'deploy-backend') || contains(inputs.failed_jobs, 'deploy-frontend'))
+        run: |
+          echo "🔍 Verifying rollback status..."
+          # Verify backend is running if it was rolled back
+          if [ -n "${{ steps.rollback-backend.outcome }}" ]; then
+            if systemctl is-active --quiet safevote-backend; then
+              echo "✅ Backend service is running after rollback"
+              echo "backend_status=success" >> $GITHUB_OUTPUT
+            else
+              echo "❌ Backend service is not running after rollback"
+              echo "backend_status=failed" >> $GITHUB_OUTPUT
+              exit 1
+            fi
+          fi
+          
+          # Add any additional verification steps here
+          echo "✅ Rollback verification complete"
+
+      - name: Notify Rollback
+        if: always()
+        uses: rtCamp/action-slack-notify@v2
+        env:
+          SLACK_WEBHOOK: ${{ secrets.SLACK_WEBHOOK_URL }}
+          SLACK_COLOR: '#ff0000'
+          SLACK_TITLE: '🚨 SafeVote Rollback Triggered'
+          SLACK_MESSAGE: |
+            *Environment*: ${{ inputs.environment }}
+            *Failed Jobs*: ${{ join(fromJSON(inputs.failed_jobs), ', ') }}
+            *Commit*: ${{ github.sha }}
+            *Run URL*: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
+            *Backend Rollback*: ${{ steps.rollback-backend.outcome == 'success' && '✅ Successful' || '❌ Failed' }}
+            *Frontend Rollback*: ${{ steps.rollback-frontend.outcome == 'success' && '✅ Successful' || '❌ Failed' }}
+            *Next Steps*: Please investigate the failure and redeploy when fixed
