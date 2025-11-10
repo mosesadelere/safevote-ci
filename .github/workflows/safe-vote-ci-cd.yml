@@ -17,13 +17,6 @@ on:
         - staging
         - production
 
-on:
-  push:
-    branches: [ main ]
-  pull_request:
-    branches: [ main ]
-  workflow_dispatch:
-
 env:
   SUT_IP_ADDRESS: ${{ vars.SUT_IP_ADDRESS }}
   BACKEND_PORT: 15550
