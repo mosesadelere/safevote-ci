@@ -234,7 +234,7 @@ jobs:
         env:
           SLACK_WEBHOOK: ${{ secrets.SLACK_WEBHOOK_URL }}
           SLACK_COLOR: ${{ steps.check-status.outputs.status == 'success' && '#36a64f' || '#ff0000' }}
-          SLACK_TITLE: 'SafeVote Deployment ${{ steps.check-status.outputs.status == 'success' && '✅ Succeeded' || '❌ Failed' }}'
+          SLACK_TITLE: "SafeVote Deployment ${{ steps.check-status.outputs.status == 'success' && '✅ Succeeded' || '❌ Failed' }}"
           SLACK_MESSAGE: |
             *Environment*: ${{ env.ENVIRONMENT }}
             *Commit*: ${{ github.sha }}
