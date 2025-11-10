@@ -1,0 +1,303 @@
+name: SafeVote CI/CD Pipeline
+
+# Controls when the workflow will run
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Environment to deploy to'
+        required: true
+        default: 'staging'
+        type: choice
+        options:
+        - staging
+        - production
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+
+env:
+  SUT_IP_ADDRESS: ${{ vars.SUT_IP_ADDRESS }}
+  BACKEND_PORT: 15550
+  AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+  AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+  AWS_REGION: ${{ vars.AWS_REGION }}
+  S3_BUCKET: ${{ vars.S3_BUCKET }}
+  ENVIRONMENT: ${{ github.event.inputs.environment || 'staging' }}
+  TF_BACKEND_BUCKET: ${{ vars.TF_BACKEND_BUCKET }}
+  TF_STATE_KEY: "safevote/${{ github.event.inputs.environment || 'staging' }}/terraform.tfstate"
+
+jobs:
+  # Security scanning job that runs in parallel
+  security-scan:
+    name: Security Scan
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Run dependency check
+        uses: actions/dependency-review-action@v3
+        with:
+          fail-on-severity: high
+
+      - name: Run OWASP Dependency Check
+        uses: dependency-check/Dependency-Check_Action@main
+        with:
+          project: 'SafeVote'
+          format: 'HTML'
+          fail_on_cvss_above_threshold: '7'
+          fail_build: true
+
+      - name: Upload dependency scan results
+        uses: actions/upload-artifact@v3
+        with:
+          name: dependency-scan-results
+          path: dependency-check-report.*
+
+  # Infrastructure deployment job
+  deploy-infrastructure:
+    name: Deploy Infrastructure
+    needs: security-scan
+    runs-on: ubuntu-latest
+    environment: ${{ github.event.inputs.environment || 'staging' }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v2
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v2
+        with:
+          terraform_wrapper: false
+
+      - name: Terraform Init
+        working-directory: ./infra
+        run: |
+          terraform init \
+            -backend-config="bucket=${{ env.TF_BACKEND_BUCKET }}" \
+            -backend-config="key=${{ env.TF_STATE_KEY }}" \
+            -backend-config="region=${{ env.AWS_REGION }}"
+
+      - name: Terraform Plan
+        id: plan
+        working-directory: ./infra
+        run: |
+          terraform plan \
+            -var="environment=${{ env.ENVIRONMENT }}" \
+            -var="s3_bucket_name=${{ env.ENVIRONMENT }}-safevote-frontend" \
+            -out=tfplan
+
+      - name: Terraform Apply
+        if: github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch'
+        working-directory: ./infra
+        run: |
+          terraform apply -auto-approve tfplan
+
+  deploy-backend:
+    name: Deploy Backend
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: '18.x'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run tests
+        run: npm test
+
+      - name: Deploy backend
+        run: |
+          chmod +x ./scripts/deploy-backend.sh
+          ./scripts/deploy-backend.sh ${{ vars.BACKEND_DOWNLOAD_URL }} $SUT_IP_ADDRESS $BACKEND_PORT
+
+  deploy-frontend:
+    name: Deploy Frontend
+    needs: [deploy-backend, deploy-infrastructure]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: '18.x'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: |
+          cd frontend
+          npm ci
+
+      - name: Build frontend
+        run: |
+          cd frontend
+          npm run build
+
+      - name: Deploy to S3
+        run: |
+          chmod +x ./scripts/deploy-frontend.sh
+          ./scripts/deploy-frontend.sh frontend/build $S3_BUCKET
+
+  run-tests:
+    name: Run Integration Tests
+    needs: [deploy-backend, deploy-frontend, deploy-infrastructure]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+
+      - name: Install Robot Framework
+        run: |
+          python -m pip install --upgrade pip
+          pip install robotframework
+          pip install robotframework-requests
+
+      - name: Run tests
+        run: |
+          chmod +x ./scripts/run-tests.sh
+          ./scripts/run-tests.sh $SUT_IP_ADDRESS $BACKEND_PORT
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v3
+        with:
+          name: test-results
+          path: test-results/
+
+  validate-deployment:
+    name: Validate Deployment
+    needs: run-tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Run validation
+        run: |
+          chmod +x ./scripts/validate-deployment.sh
+          ./scripts/validate-deployment.sh $SUT_IP_ADDRESS $BACKEND_PORT
+
+      - name: Upload validation results
+        if: always()
+        uses: actions/upload-artifact@v3
+        with:
+          name: validation-results
+          path: validation-results/
+
+  notify-deployment:
+    name: Notify Team
+    needs: validate-deployment
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check deployment status
+        id: check-status
+        run: |
+          if [ "${{ needs.deploy-backend.result }}" = "success" ] && \
+             [ "${{ needs.deploy-frontend.result }}" = "success" ] && \
+             [ "${{ needs.validate-deployment.result }}" = "success" ]; then
+            echo "status=success" >> $GITHUB_OUTPUT
+          else
+            echo "status=failed" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Send Slack notification
+        uses: rtCamp/action-slack-notify@v2
+        env:
+          SLACK_WEBHOOK: ${{ secrets.SLACK_WEBHOOK_URL }}
+          SLACK_COLOR: ${{ steps.check-status.outputs.status == 'success' && '#36a64f' || '#ff0000' }}
+          SLACK_TITLE: 'SafeVote Deployment ${{ steps.check-status.outputs.status == 'success' && '✅ Succeeded' || '❌ Failed' }}'
+          SLACK_MESSAGE: |
+            *Environment*: ${{ env.ENVIRONMENT }}
+            *Commit*: ${{ github.sha }}
+            *Workflow*: ${{ github.workflow }}
+            *Status*: ${{ steps.check-status.outputs.status }}
+            *Run URL*: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
+
+  rollback-on-failure:
+    name: Rollback on Failure
+    if: failure() && (needs.deploy-backend.result == 'failure' || needs.deploy-frontend.result == 'failure' || needs.validate-deployment.result == 'failure')
+    needs: [deploy-backend, deploy-frontend, validate-deployment]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+        with:
+          ref: ${{ github.event.before || 'HEAD~1' }}
+
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v2
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Rollback Backend
+        if: needs.deploy-backend.result == 'failure'
+        run: |
+          # Implement rollback logic for backend
+          echo "Rolling back backend to previous version..."
+          # Add your rollback commands here
+
+      - name: Rollback Frontend
+        if: needs.deploy-frontend.result == 'failure'
+        run: |
+          # Implement rollback logic for frontend
+          echo "Rolling back frontend to previous version..."
+          # Add your rollback commands here
+
+      - name: Notify Rollback
+        uses: rtCamp/action-slack-notify@v2
+        env:
+          SLACK_WEBHOOK: ${{ secrets.SLACK_WEBHOOK_URL }}
+          SLACK_COLOR: '#ff0000'
+          SLACK_TITLE: '🚨 SafeVote Rollback Triggered'
+          SLACK_MESSAGE: |
+            *Environment*: ${{ env.ENVIRONMENT }}
+            *Failed Job*: ${{ contains(needs.*.result, 'failure') && 'Multiple' || (needs.deploy-backend.result == 'failure' && 'Backend' || (needs.deploy-frontend.result == 'failure' && 'Frontend' || 'Validation')) }}
+            *Commit*: ${{ github.sha }}
+            *Run URL*: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Run validation
+        run: |
+          chmod +x ./scripts/validate-deployment.sh
+          ./scripts/validate-deployment.sh $SUT_IP_ADDRESS $BACKEND_PORT
+
+      - name: Upload validation results
+        if: always()
+        uses: actions/upload-artifact@v3
+        with:
+          name: validation-results
+          path: validation-results/
