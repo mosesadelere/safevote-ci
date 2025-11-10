@@ -278,19 +278,3 @@ jobs:
             *Failed Job*: ${{ contains(needs.*.result, 'failure') && 'Multiple' || (needs.deploy-backend.result == 'failure' && 'Backend' || (needs.deploy-frontend.result == 'failure' && 'Frontend' || 'Validation')) }}
             *Commit*: ${{ github.sha }}
             *Run URL*: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v3
-
-      - name: Run validation
-        run: |
-          chmod +x ./scripts/validate-deployment.sh
-          ./scripts/validate-deployment.sh $SUT_IP_ADDRESS $BACKEND_PORT
-
-      - name: Upload validation results
-        if: always()
-        uses: actions/upload-artifact@v3
-        with:
-          name: validation-results
-          path: validation-results/
