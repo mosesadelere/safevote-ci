@@ -55,9 +55,9 @@ jobs:
     uses: ./.github/workflows/deploy-backend.yml
     with:
       environment: ${{ github.event.inputs.environment || 'staging' }}
-      backend_download_url: ${{ vars.BACKEND_DOWNLOAD_URL || 'http://localhost:3000' }}
-      sut_ip_address: ${{ vars.SUT_IP_ADDRESS || 'localhost' }}
-      backend_port: ${{ vars.BACKEND_PORT || '15550' }}
+      BACKEND_DOWNLOAD_URL: ${{ vars.BACKEND_DOWNLOAD_URL || 'http://localhost:3000' }}
+      SUT_IP_ADDRESS: ${{ vars.SUT_IP_ADDRESS || 'localhost' }}
+      BACKEND_PORT: ${{ vars.BACKEND_PORT || '15550' }}
 
   # deploy-frontend:
   #   needs: [deploy-backend, deploy-infrastructure]
