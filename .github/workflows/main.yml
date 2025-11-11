@@ -44,19 +44,17 @@ jobs:
     with:
       environment: ${{ github.event.inputs.environment || 'staging' }}
 
-  # deploy-infrastructure:
-  #   needs: security-scan
-  #   uses: ./.github/workflows/jobs/deploy-infrastructure.yml
-  #   secrets: inherit
-  #   with:
-  #     environment: ${{ github.event.inputs.environment || 'staging' }}
+  deploy-infrastructure:
+    needs: security-scan
+    uses: ./.github/workflows/deploy-infrastructure.yml
+    with:
+      environment: ${{ github.event.inputs.environment || 'staging' }}
 
-  # deploy-backend:
-  #   needs: security-scan
-  #   uses: ./.github/workflows/jobs/deploy-backend.yml
-  #   secrets: inherit
-  #   with:
-  #     environment: ${{ github.event.inputs.environment || 'staging' }}
+  deploy-backend:
+    needs: security-scan
+    uses: ./.github/workflows/deploy-backend.yml
+    with:
+      environment: ${{ github.event.inputs.environment || 'staging' }}
 
   # deploy-frontend:
   #   needs: [deploy-backend, deploy-infrastructure]
