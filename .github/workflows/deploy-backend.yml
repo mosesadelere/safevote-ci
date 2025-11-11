@@ -6,6 +6,18 @@ on:
       environment:
         required: true
         type: string
+      backend_download_url:
+        required: false
+        type: string
+        default: 'http://localhost:15550'
+      sut_ip_address:
+        required: false
+        type: string
+        default: 'localhost'
+      backend_port:
+        required: false
+        type: string
+        default: '15550'
 
 jobs:
   deploy-backend:
@@ -71,9 +83,8 @@ jobs:
       - name: Deploy backend
         run: |
           chmod +x ./scripts/deploy-backend.sh
-          echo "Deploying backend with URL: ${{ vars.BACKEND_DOWNLOAD_URL }}"
-          echo "SUT IP: $SUT_IP_ADDRESS"
-          echo "Backend Port: $BACKEND_PORT"
-          ./scripts/deploy-backend.sh "${{ vars.BACKEND_DOWNLOAD_URL }}" "$SUT_IP_ADDRESS" "$BACKEND_PORT"
-        env:
-          BACKEND_PORT: ${{ vars.BACKEND_PORT || '15550' }}
+          echo "Deploying backend with URL: ${{ inputs.backend_download_url }}"
+          echo "SUT IP: ${{ inputs.sut_ip_address }}"
+          echo "Backend Port: ${{ inputs.backend_port }}"
+          ./scripts/deploy-backend.sh "${{ inputs.backend_download_url }}" "${{ inputs.sut_ip_address }}" "${{ inputs.backend_port }}"
+          
