@@ -21,7 +21,7 @@ env:
   # Required variables with defaults for local testing
   SUT_IP_ADDRESS: ${{ vars.SUT_IP_ADDRESS || 'localhost' }}
   BACKEND_PORT: 15550
-  BACKEND_DOWNLOAD_URL: ${{ vars.BACKEND_DOWNLOAD_URL || 'http://localhost:3000' }}
+  BACKEND_DOWNLOAD_URL: ${{ vars.BACKEND_DOWNLOAD_URL || 'http://localhost:15550' }}
   
   # AWS Configuration
   AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID || 'dummy-key' }}
