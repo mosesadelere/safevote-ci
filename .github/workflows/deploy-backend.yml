@@ -60,10 +60,13 @@ jobs:
             echo "::error::BACKEND_DOWNLOAD_URL is not set. Please set it in your repository's variables."
             exit 1
           fi
-          if [ -z "$SUT_IP_ADDRESS" ]; then
+          if [ -z "${{ vars.SUT_IP_ADDRESS }}" ]; then
             echo "::error::SUT_IP_ADDRESS is not set. Please set it in your repository's variables."
             exit 1
           fi
+        env:
+          BACKEND_DOWNLOAD_URL: ${{ vars.BACKEND_DOWNLOAD_URL }}
+          SUT_IP_ADDRESS: ${{ vars.SUT_IP_ADDRESS }}
 
       - name: Deploy backend
         run: |
@@ -72,3 +75,5 @@ jobs:
           echo "SUT IP: $SUT_IP_ADDRESS"
           echo "Backend Port: $BACKEND_PORT"
           ./scripts/deploy-backend.sh "${{ vars.BACKEND_DOWNLOAD_URL }}" "$SUT_IP_ADDRESS" "$BACKEND_PORT"
+        env:
+          BACKEND_PORT: ${{ vars.BACKEND_PORT || '15550' }}
