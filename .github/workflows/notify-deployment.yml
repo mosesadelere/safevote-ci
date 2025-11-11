@@ -9,7 +9,6 @@ on:
       status:
         required: true
         type: string
-    secrets: inherit
 
 jobs:
   notify-deployment:

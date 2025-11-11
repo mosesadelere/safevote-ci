@@ -9,7 +9,6 @@ on:
       failed_jobs:
         required: true
         type: string
-    secrets: inherit
 
 jobs:
   rollback-on-failure:

@@ -59,42 +59,37 @@ jobs:
       sut_ip_address: ${{ vars.SUT_IP_ADDRESS || 'localhost' }}
       backend_port: ${{ vars.BACKEND_PORT || '15550' }}
 
-  # deploy-frontend:
-  #   needs: [deploy-backend, deploy-infrastructure]
-  #   uses: ./.github/workflows/jobs/deploy-frontend.yml
-  #   secrets: inherit
-  #   with:
-  #     environment: ${{ github.event.inputs.environment || 'staging' }}
+  deploy-frontend:
+    needs: [deploy-backend, deploy-infrastructure]
+    uses: ./.github/workflows/deploy-frontend.yml
+    with:
+      environment: ${{ github.event.inputs.environment || 'staging' }}
 
-  # run-tests:
-  #   needs: [deploy-backend, deploy-frontend, deploy-infrastructure]
-  #   uses: ./.github/workflows/jobs/run-tests.yml
-  #   secrets: inherit
-  #   with:
-  #     environment: ${{ github.event.inputs.environment || 'staging' }}
+  run-tests:
+    needs: [deploy-backend, deploy-frontend, deploy-infrastructure]
+    uses: ./.github/workflows/run-tests.yml
+    with:
+      environment: ${{ github.event.inputs.environment || 'staging' }}
 
-  # validate-deployment:
-  #   needs: run-tests
-  #   uses: ./.github/workflows/jobs/validate-deployment.yml
-  #   secrets: inherit
-  #   with:
-  #     environment: ${{ github.event.inputs.environment || 'staging' }}
+  validate-deployment:
+    needs: run-tests
+    uses: ./.github/workflows/validate-deployment.yml
+    with:
+      environment: ${{ github.event.inputs.environment || 'staging' }}
 
-  # notify-deployment:
-  #   needs: validate-deployment
-  #   if: always()
-  #   uses: ./.github/workflows/jobs/notify-deployment.yml
-  #   secrets: inherit
-  #   with:
-  #     environment: ${{ github.event.inputs.environment || 'staging' }}
-  #     status: ${{ needs.validate-deployment.result }}
+  notify-deployment:
+    needs: validate-deployment
+    if: always()
+    uses: ./.github/workflows/notify-deployment.yml
+    with:
+      environment: ${{ github.event.inputs.environment || 'staging' }}
+      status: ${{ needs.validate-deployment.result }}
 
-  # rollback-on-failure:
-  #   if: failure() && (needs.deploy-backend.result == 'failure' || needs.deploy-frontend.result == 'failure' || needs.validate-deployment.result == 'failure')
-  #   needs: [deploy-backend, deploy-frontend, validate-deployment]
-  #   uses: ./.github/workflows/jobs/rollback-on-failure.yml
-  #   secrets: inherit
-  #   with:
-  #     environment: ${{ github.event.inputs.environment || 'staging' }}
-  #     failed_jobs: >
-  #       ${{ toJSON(needs.*.result) }}
+  rollback-on-failure:
+    if: failure() && (needs.deploy-backend.result == 'failure' || needs.deploy-frontend.result == 'failure' || needs.validate-deployment.result == 'failure')
+    needs: [deploy-backend, deploy-frontend, validate-deployment]
+    uses: ./.github/workflows/rollback-on-failure.yml
+    with:
+      environment: ${{ github.event.inputs.environment || 'staging' }}
+      failed_jobs: >
+        ${{ toJSON(needs.*.result) }}

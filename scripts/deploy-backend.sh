@@ -7,14 +7,40 @@ PORT=$3
 TEMP_DIR="/tmp/safevote-backend"
 SERVICE_NAME="safevote-backend"
 
+# validate inputs
+if [[ "${{ BACKEND_URL }}" == *"localhost"* ]]; then
+  echo "::error::BACKEND_URL ($BACKEND_URL) appears to be a localhost URL. This is not valid for deployment."
+  echo "Please set BACKEND_DOWNLOAD_URL variable in your repository settings to a valid URL."
+  exit 1
+fi
+
+if [[ "$SUT_IP" == *"localhost"* ]]; then
+    echo "::error::SUT_IP ($SUT_IP) appears to be localhost. This is not valid for deployment."
+    echo "Please set SUT_IP_ADDRESS variable in your repository settings to a valid server IP."
+    exit 1
+fi
+
 # Create temporary directory
 mkdir -p $TEMP_DIR
 cd $TEMP_DIR
 
 # Download and extract backend
 echo "Downloading backend from $BACKEND_URL..."
-wget -O backend.tar.gz $BACKEND_URL
-tar -xzf backend.tar.gz
+if [[ ! wget -O backend.tar.gz $BACKEND_URL ]]; then
+  echo "::error::Downloaded file backend.tar.gz does not exist"
+  exit 1
+fi
+
+if [ ! -f backend.tar.gz ]; then
+    echo "::error::Downloaded file backend.tar.gz does not exist"
+    exit 1
+fi
+
+# Extract the archive
+if ! tar -xzf backend.tar.gz; then
+    echo "::error::Failed to extract backend.tar.gz"
+    exit 1
+fi
 
 # Install dependencies
 echo "Installing backend dependencies..."
