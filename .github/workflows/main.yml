@@ -39,7 +39,7 @@ env:
 
 jobs:
   security-scan:
-    uses: .github/workflows/jobs/security-scan.yml
+    uses: /.github/workflows/jobs/security-scan.yml
     secrets: inherit
     with:
       environment: ${{ github.event.inputs.environment || 'staging' }}
