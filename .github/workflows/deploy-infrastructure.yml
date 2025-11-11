@@ -6,6 +6,18 @@ on:
       environment:
         required: true
         type: string
+      aws_region:
+        default: 'us-east-1'
+        type: string
+        required: false
+      tf_backend_bucket:
+        required: false
+        type: string
+        default: 'safevote-tfstate'
+      s3_bucket:
+        required: false
+        type: string
+        default: 'safevote-local'
 
 jobs:
   deploy-infrastructure:
@@ -32,17 +44,17 @@ jobs:
         working-directory: ./infra
         run: |
           terraform init \
-            -backend-config="bucket=${{ env.TF_BACKEND_BUCKET }}" \
-            -backend-config="key=${{ env.TF_STATE_KEY }}" \
-            -backend-config="region=${{ env.AWS_REGION }}"
+            -backend-config="bucket=${{ inputs.tf_backend_bucket }}" \
+            -backend-config="key=${{ inputs.environment }}/terraform.tfstate" \
+            -backend-config="region=${{ inputs.aws_region }}"
 
       - name: Terraform Plan
         id: plan
         working-directory: ./infra
         run: |
           terraform plan \
-            -var="environment=${{ env.ENVIRONMENT }}" \
-            -var="s3_bucket_name=${{ env.ENVIRONMENT }}-safevote-frontend" \
+            -var="environment=${{ inputs.environment }}" \
+            -var="s3_bucket_name=${{ inputs.environment }}-safevote-frontend" \
             -out=tfplan
 
       - name: Terraform Apply
