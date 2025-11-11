@@ -41,7 +41,6 @@ jobs:
   security-scan:
     name: test
     uses: ./.github/workflows/security-scan.yml
-    secrets: inherit
     with:
       environment: ${{ github.event.inputs.environment || 'staging' }}
 
