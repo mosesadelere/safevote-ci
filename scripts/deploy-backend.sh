@@ -8,7 +8,7 @@ TEMP_DIR="/tmp/safevote-backend"
 SERVICE_NAME="safevote-backend"
 
 # validate inputs
-if [[ "${{ BACKEND_URL }}" == *"localhost"* ]]; then
+if [[ "$BACKEND_URL" == *"localhost"* ]]; then
   echo "::error::BACKEND_URL ($BACKEND_URL) appears to be a localhost URL. This is not valid for deployment."
   echo "Please set BACKEND_DOWNLOAD_URL variable in your repository settings to a valid URL."
   exit 1
