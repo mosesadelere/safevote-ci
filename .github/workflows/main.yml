@@ -50,6 +50,8 @@ jobs:
     with:
       environment: ${{ github.event.inputs.environment || 'staging' }}
       aws_region: ${{ vars.AWS_REGION || 'us-east-1' }}
+      tf_backend_bucket: ${{ vars.TF_BACKEND_BUCKET || 'safevote-tfstate' }}
+      s3_bucket: ${{ vars.S3_BUCKET || 'safevote-local' }}
 
   deploy-backend:
     needs: security-scan
